@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Flight Weather Mini App</title>
+  <!-- Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <!-- Leaflet CSS & JS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    :root {
+      --bg: var(--tg-theme-bg-color, #111827);
+      --secondary-bg: var(--tg-theme-secondary-bg-color, #1f2937);
+      --text: var(--tg-theme-text-color, #f9fafb);
+      --hint: var(--tg-theme-hint-color, #9ca3af);
+      --accent: var(--tg-theme-button-color, #3b82f6);
+      --accent-text: var(--tg-theme-button-text-color, #ffffff);
+      --border: rgba(255, 255, 255, 0.1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #map {
+      flex: 1;
+      width: 100%;
+      z-index: 1;
+    }
+
+    .panel {
+      background: var(--secondary-bg);
+      border-top: 1px solid var(--border);
+      padding: 12px 16px 16px;
+      z-index: 2;
+      max-height: 52vh;
+      overflow-y: auto;
+      border-radius: 16px 16px 0 0;
+      box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.35);
+    }
+
+    .header-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      gap: 8px;
+    }
+
+    .coords {
+      font-size: 13px;
+      font-family: monospace;
+      color: var(--hint);
+    }
+
+    .status-badge {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 999px;
+      background: rgba(16, 185, 129, 0.18);
+      color: #34d399;
+    }
+
+    .status-badge.warn {
+      background: rgba(245, 158, 11, 0.18);
+      color: #fbbf24;
+    }
+
+    .status-badge.danger {
+      background: rgba(239, 68, 68, 0.18);
+      color: #f87171;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 8px 10px;
+    }
+
+    .card-label {
+      font-size: 11px;
+      color: var(--hint);
+      margin-bottom: 2px;
+    }
+
+    .card-value {
+      font-size: 15px;
+      font-weight: 600;
+    }
+
+    .card-sub {
+      font-size: 11px;
+      color: var(--hint);
+      margin-top: 2px;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent);
+      color: var(--accent-text);
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn:active {
+      opacity: 0.85;
+    }
+
+    .hint-banner {
+      position: absolute;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 1000;
+      background: rgba(17, 24, 39, 0.85);
+      color: #f9fafb;
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      pointer-events: none;
+      backdrop-filter: blur(4px);
+    }
+  </style>
+</head>
+<body>
+  <div class="hint-banner">Торкніться карти, щоб обрати точку</div>
+  <div id="map"></div>
+
+  <div class="panel">
+    <div class="header-row">
+      <div class="coords" id="coords">49.23310, 28.46820</div>
+      <div class="status-badge" id="flight-status">Завантаження...</div>
+    </div>
+
+    <div class="grid" id="weather-grid">
+      <div class="card">
+        <div class="card-label">Вітер (10 м / Пориви)</div>
+        <div class="card-value" id="wind-10m">—</div>
+        <div class="card-sub" id="wind-dir">—</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Вітер на висоті (80 / 120 м)</div>
+        <div class="card-value" id="wind-alt">—</div>
+        <div class="card-sub" id="wind-alt-dir">—</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Температура / Точка роси</div>
+        <div class="card-value" id="temp-dew">—</div>
+        <div class="card-sub" id="humidity">Вологість: —</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Тиск (QNH) / Видимість</div>
+        <div class="card-value" id="pressure-vis">—</div>
+        <div class="card-sub" id="clouds">Хмарність: —</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Опади</div>
+        <div class="card-value" id="precip">—</div>
+        <div class="card-sub" id="weather-code">—</div>
+      </div>
+      <div class="card">
+        <div class="card-label">Світловий день</div>
+        <div class="card-value" id="sun-times">—</div>
+        <div class="card-sub" id="elevation">Висота рельєфу: —</div>
+      </div>
+    </div>
+
+    <button class="btn" id="send-btn">Надіслати точку в бот</button>
+  </div>
+
+  <script>
+    // Ініціалізація Telegram WebApp
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.ready();
+
+    // Стартові координати (Вінниця)
+    let selectedLat = 49.2331;
+    let selectedLon = 28.4682;
+    let latestReport = null;
+
+    // Ініціалізація карти Leaflet
+    const map = L.map("map", { zoomControl: false }).setView([selectedLat, selectedLon], 11);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 18,
+      attribution: "&copy; OpenStreetMap"
+    }).addTo(map);
+
+    let marker = L.marker([selectedLat, selectedLon]).addTo(map);
+
+    // Допоміжна функція напрямку вітру
+    function degToCompass(deg) {
+      const dirs = ["Пн", "ПнСх", "Сх", "ПдСх", "Пд", "ПдЗх", "Зх", "ПнЗх"];
+      return dirs[Math.round(deg / 45) % 8];
+    }
+
+    // Отримання погоди та висотних даних з Open-Meteo
+    async function fetchFlightWeather(lat, lon) {
+      document.getElementById("coords").textContent = `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+      const statusEl = document.getElementById("flight-status");
+      statusEl.textContent = "Оновлення...";
+      statusEl.className = "status-badge";
+
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+        `&current=temperature_2m,relative_humidity_2m,dew_point_2m,precipitation,cloud_cover,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,visibility` +
+        `&hourly=wind_speed_80m,wind_direction_80m,wind_speed_120m,wind_direction_120m` +
+        `&daily=sunrise,sunset&wind_speed_unit=ms&timezone=auto&forecast_days=1`;
+
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+
+        const cur = data.current;
+        const nowHour = new Date().getHours();
+        const w80 = data.hourly.wind_speed_80m[nowHour];
+        const d80 = data.hourly.wind_direction_80m[nowHour];
+        const w120 = data.hourly.wind_speed_120m[nowHour];
+        const d120 = data.hourly.wind_direction_120m[nowHour];
+
+        const sunrise = data.daily.sunrise[0].split("T")[1];
+        const sunset = data.daily.sunset[0].split("T")[1];
+        const visKm = (cur.visibility / 1000).toFixed(1);
+
+        // Оновлення карток
+        document.getElementById("wind-10m").textContent = `${cur.wind_speed_10m} / ${cur.wind_gusts_10m} м/с`;
+        document.getElementById("wind-dir").textContent = `Напрямок: ${cur.wind_direction_10m}° (${degToCompass(cur.wind_direction_10m)})`;
+
+        document.getElementById("wind-alt").textContent = `${w80} / ${w120} м/с`;
+        document.getElementById("wind-alt-dir").textContent = `80м: ${d80}° | 120м: ${d120}°`;
+
+        document.getElementById("temp-dew").textContent = `${cur.temperature_2m}°C / ${cur.dew_point_2m}°C`;
+        document.getElementById("humidity").textContent = `Вологість: ${cur.relative_humidity_2m}%`;
+
+        document.getElementById("pressure-vis").textContent = `${Math.round(cur.pressure_msl)} гПа / ${visKm} км`;
+        document.getElementById("clouds").textContent = `Хмарність: ${cur.cloud_cover}%`;
+
+        document.getElementById("precip").textContent = `${cur.precipitation} мм`;
+        const spread = (cur.temperature_2m - cur.dew_point_2m).toFixed(1);
+        document.getElementById("weather-code").textContent = `Дефіцит т. роси: ${spread}°C`;
+
+        document.getElementById("sun-times").textContent = `${sunrise} – ${sunset}`;
+        document.getElementById("elevation").textContent = `Висота рельєфу: ${data.elevation} м`;
+
+        // Проста оцінка умов польоту (можна налаштувати під свій борт)
+        if (cur.wind_gusts_10m > 12 || w120 > 15 || cur.precipitation > 0.5 || cur.visibility < 2000) {
+          statusEl.textContent = "Складні умови";
+          statusEl.className = "status-badge danger";
+        } else if (cur.wind_gusts_10m > 8 || w120 > 11 || spread < 2) {
+          statusEl.textContent = "Обережно (вітер/туман)";
+          statusEl.className = "status-badge warn";
+        } else {
+          statusEl.textContent = "Умови сприятливі";
+          statusEl.className = "status-badge";
+        }
+
+        latestReport = {
+          lat: Number(lat.toFixed(5)),
+          lon: Number(lon.toFixed(5)),
+          elevation: data.elevation,
+          wind_10m: cur.wind_speed_10m,
+          gusts_10m: cur.wind_gusts_10m,
+          wind_dir: cur.wind_direction_10m,
+          wind_80m: w80,
+          wind_120m: w120,
+          temp: cur.temperature_2m,
+          dew_point: cur.dew_point_2m,
+          pressure_qnh: Math.round(cur.pressure_msl),
+          visibility_km: visKm,
+          clouds: cur.cloud_cover,
+          precip: cur.precipitation,
+          sunrise,
+          sunset
+        };
+      } catch (e) {
+        statusEl.textContent = "Помилка API";
+        statusEl.className = "status-badge danger";
+      }
+    }
+
+    // Обробка кліку по карті
+    map.on("click", (e) => {
+      selectedLat = e.latlng.lat;
+      selectedLon = e.latlng.lng;
+      marker.setLatLng([selectedLat, selectedLon]);
+      if (tg.HapticFeedback) {
+        tg.HapticFeedback.impactOccurred("light");
+      }
+      fetchFlightWeather(selectedLat, selectedLon);
+    });
+
+    // Відправка даних назад у Telegram бот
+    document.getElementById("send-btn").addEventListener("click", () => {
+      if (!latestReport) return;
+      tg.sendData(JSON.stringify(latestReport));
+    });
+
+    // Початкове завантаження
+    fetchFlightWeather(selectedLat, selectedLon);
+  </script>
+</body>
+</html>
